@@ -1,0 +1,16 @@
+model_path: models/best.pt
+conf: 0.30
+iou: 0.50
+target_classes:
+  - person
+source_type: webcam
+camera_id: 0
+source_path: data/videos/input.mp4
+zones_path: assets/sample_zones.json
+draw_zones: false
+save_output: false
+output_path: data/videos/true.mp4
+display: true
+device: auto
+imgsz: 640
+tracker_config: bytetrack.yaml
