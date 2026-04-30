@@ -20,14 +20,16 @@ Youtube Demo: [Watch the demo](https://www.youtube.com/watch?v=JkBRFS-tjHM)
 
 The system detects selected object classes, assigns persistent tracking IDs, checks whether each tracked object is inside user-defined polygon zones, and calculates how long each object stays inside each zone.
 
+The default example in this repository focuses on `person` tracking, but the system is designed to support multiple target classes if the YOLO model is trained with those classes.
+
 Typical use cases include:
 
 - Person dwell-time monitoring
 - Restricted-area monitoring
 - Safety-zone monitoring
-- Helmet or equipment presence monitoring
 - Multi-zone object activity analysis
 - Camera-based behavior or movement tracking
+- Multi-class zone-based object tracking
 
 ---
 
@@ -47,7 +49,8 @@ Typical use cases include:
 | Multi-zone support | Supports multiple user-defined polygon zones |
 | Flexible polygon shapes | Each zone can contain any number of polygon points |
 | JSON zone storage | Zones can be saved to and loaded from JSON files |
-| Configurable classes | Target classes can be configured, such as `person`, `helmet`, or other custom model classes |
+| Configurable classes | Default example uses `person`, but the system can track multiple classes supported by the selected YOLO model |
+| Multi-class tracking support | Multiple target classes can be passed through `--classes` or configured in `target_classes` |
 | Dwell-time analytics | Calculates time spent inside each zone per class and track ID |
 | OpenCV visualization | Draws bounding boxes, class names, confidence scores, track IDs, zones, dwell time, and zone summaries |
 | Output video saving | Can optionally save the processed video |
@@ -87,11 +90,19 @@ zone_1
     └── track_id_2 -> 7.8 seconds
 
 zone_2
-└── helmet
+└── person
     └── track_id_5 -> 4.2 seconds
 ```
 
 This structure allows the system to separate dwell records by zone, class, and individual tracked object.
+
+For multi-class models, the same structure is used for every configured class:
+
+```text
+zone_id -> class_name -> track_id
+```
+
+This means the project can track `person` by default and can also track additional classes if they exist in the selected YOLO model.
 
 ---
 
@@ -102,28 +113,30 @@ person-zone-tracking/
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
+├── assets/
+│   ├── images/
+│   │   └── sample_zones_tracking.jpg
+│   └── sample_zones.json
 ├── configs/
 │   └── app.yaml
-├── assets/
-│   └── sample_zones.json
 ├── data/
-│   ├── videos/
+│   ├── outputs/
 │   │   └── .gitkeep
-│   └── outputs/
+│   └── videos/
 │       └── .gitkeep
 ├── models/
 │   └── .gitkeep
 ├── src/
-│   ├── main.py
 │   ├── config.py
-│   ├── video_source.py
 │   ├── detector.py
-│   ├── tracker.py
-│   ├── zone_editor.py
-│   ├── zone_manager.py
 │   ├── dwell_time.py
+│   ├── main.py
+│   ├── tracker.py
+│   ├── utils.py
+│   ├── video_source.py
 │   ├── visualizer.py
-│   └── utils.py
+│   ├── zone_editor.py
+│   └── zone_manager.py
 └── tests/
     └── .gitkeep
 ```
@@ -159,14 +172,24 @@ Run all commands from the project root directory.
 ### Run with Webcam
 
 ```bash
-python src/main.py --source-type webcam --camera-id 0 --model-path models/best.pt --conf 0.3 --classes person helmet
+python src/main.py --source-type webcam --camera-id 0 --model-path models/best.pt --conf 0.3 --classes person
 ```
 
 ### Run with Video File
 
 ```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes person helmet
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes person
 ```
+
+### Run with Multiple Classes
+
+The default examples use `person`, but the system supports multiple target classes if the selected YOLO model includes them.
+
+```bash
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes person class_a class_b
+```
+
+Replace `class_a` and `class_b` with class names that exist in your trained YOLO model.
 
 ### Draw Zones
 
@@ -238,7 +261,6 @@ conf: 0.30
 iou: 0.50
 target_classes:
   - person
-  - helmet
 source_type: webcam
 camera_id: 0
 source_path: data/videos/input.mp4
@@ -251,6 +273,17 @@ device: auto
 imgsz: 640
 tracker_config: bytetrack.yaml
 ```
+
+To track more than one class, add more class names under `target_classes`.
+
+```yaml
+target_classes:
+  - person
+  - class_a
+  - class_b
+```
+
+Each class name must exist in the selected YOLO model.
 
 Relative paths are resolved from the project root directory.
 
@@ -285,6 +318,28 @@ Zones are stored in JSON format.
 Each polygon must have at least three points.
 
 If `target_classes` is omitted or empty for a zone, the global target classes are used.
+
+For multi-class tracking, each zone can define its own target classes:
+
+```json
+{
+  "id": "zone_1",
+  "name": "Zone 1",
+  "points": [
+    [447, 119],
+    [836, 118],
+    [843, 439],
+    [437, 439]
+  ],
+  "target_classes": [
+    "person",
+    "class_a",
+    "class_b"
+  ]
+}
+```
+
+Use class names that are available in your trained YOLO model.
 
 ---
 
@@ -344,6 +399,41 @@ If the configured zones file is missing, or `--draw-zones true` is passed, the a
 | Multiple classes | Dwell time is calculated independently per class name |
 | Multiple track IDs | Dwell time is calculated independently per tracked object |
 | Detection without tracking ID | Detection is displayed, but dwell time is skipped |
+
+---
+
+## Multi-Class Tracking Support
+
+This repository uses `person` as the default example class, but the tracking pipeline is not limited to one class.
+
+The system can track multiple classes when:
+
+1. The YOLO model was trained with those classes.
+2. The class names are passed through `--classes` or added to `target_classes` in the YAML config.
+3. The zone JSON either uses the global target classes or defines zone-specific `target_classes`.
+
+Example command:
+
+```bash
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --classes person class_a class_b
+```
+
+Example YAML:
+
+```yaml
+target_classes:
+  - person
+  - class_a
+  - class_b
+```
+
+Example dwell-time structure:
+
+```text
+zone_id -> class_name -> track_id
+```
+
+This allows the same system to track one class, such as `person`, or multiple classes depending on the model and configuration.
 
 ---
 
@@ -457,7 +547,7 @@ Exported models may require different inference code, preprocessing, post-proces
 
 - Tracking quality depends on the YOLO model, camera angle, frame rate, object occlusion, and tracker configuration.
 - The sample zone file is only a placeholder. Draw zones for your actual camera or video scene.
-- Helmet detection requires a model trained with a `helmet` class.
+- Additional target classes require a YOLO model trained with those classes.
 - Very crowded scenes may require adjusted confidence, IoU, image size, or tracker settings.
 - Detections without persistent tracking IDs cannot be used for dwell-time accumulation.
 - Exported models may require different inference code, preprocessing, post-processing, or runtime dependencies depending on the selected format.
@@ -481,5 +571,7 @@ Exported models may require different inference code, preprocessing, post-proces
 This project is structured for practical computer vision experimentation and deployment-style development.
 
 The main goal is not only to detect objects, but also to convert detection and tracking results into zone-based time analytics that can be used for monitoring, reporting, or downstream decision logic.
+
+Although this repository uses `person` as the default example class, the pipeline is designed to support multiple classes when the selected YOLO model and configuration provide them.
 
 For deployment, always test the exported model on the actual target device. Export format alone does not guarantee real-world performance. Camera resolution, FPS, preprocessing, post-processing, tracker configuration, and hardware acceleration all affect the final system speed.
