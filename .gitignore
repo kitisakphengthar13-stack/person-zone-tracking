@@ -37,12 +37,20 @@ models/*
 *.engine
 *.tflite
 *.mlmodel
+*.ncnn
+*.rknn
+*_openvino_model/
+*_openvino_model*/
 
 # Local video inputs and generated outputs
 data/videos/*
 !data/videos/.gitkeep
 data/outputs/*
 !data/outputs/.gitkeep
+*.mp4
+*.avi
+*.mov
+*.mkv
 
 # Ultralytics runtime output
 runs/

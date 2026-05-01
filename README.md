@@ -63,15 +63,20 @@ Typical use cases include:
 
 ```text
 Video or Webcam Input
-        ↓
+        |
+        v
 YOLO Object Detection
-        ↓
+        |
+        v
 Persistent Object Tracking
-        ↓
+        |
+        v
 Polygon Zone Matching
-        ↓
+        |
+        v
 Dwell Time Calculation
-        ↓
+        |
+        v
 Visualization and Optional Output Saving
 ```
 
@@ -85,13 +90,13 @@ Example:
 
 ```text
 zone_1
-└── person
-    ├── track_id_1 -> 12.4 seconds
-    └── track_id_2 -> 7.8 seconds
+`-- person
+    |-- track_id_1 -> 12.4 seconds
+    `-- track_id_2 -> 7.8 seconds
 
 zone_2
-└── person
-    └── track_id_5 -> 4.2 seconds
+`-- person
+    `-- track_id_5 -> 4.2 seconds
 ```
 
 This structure allows the system to separate dwell records by zone, class, and individual tracked object.
@@ -110,35 +115,35 @@ This means the project can track `person` by default and can also track addition
 
 ```text
 person-zone-tracking/
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── assets/
-│   ├── images/
-│   │   └── sample_zones_tracking.jpg
-│   └── sample_zones.json
-├── configs/
-│   └── app.yaml
-├── data/
-│   ├── outputs/
-│   │   └── .gitkeep
-│   └── videos/
-│       └── .gitkeep
-├── models/
-│   └── .gitkeep
-├── src/
-│   ├── config.py
-│   ├── detector.py
-│   ├── dwell_time.py
-│   ├── main.py
-│   ├── tracker.py
-│   ├── utils.py
-│   ├── video_source.py
-│   ├── visualizer.py
-│   ├── zone_editor.py
-│   └── zone_manager.py
-└── tests/
-    └── .gitkeep
+|-- README.md
+|-- requirements.txt
+|-- .gitignore
+|-- assets/
+|   |-- images/
+|   |   `-- sample_zones_tracking.jpg
+|   `-- sample_zones.json
+|-- configs/
+|   `-- app.yaml
+|-- data/
+|   |-- outputs/
+|   |   `-- .gitkeep
+|   `-- videos/
+|       `-- .gitkeep
+|-- models/
+|   `-- .gitkeep
+|-- src/
+|   |-- config.py
+|   |-- detector.py
+|   |-- dwell_time.py
+|   |-- main.py
+|   |-- tracker.py
+|   |-- utils.py
+|   |-- video_source.py
+|   |-- visualizer.py
+|   |-- zone_editor.py
+|   `-- zone_manager.py
+`-- tests/
+    `-- .gitkeep
 ```
 
 ---
@@ -193,6 +198,14 @@ Replace `class_a` and `class_b` with class names that exist in your trained YOLO
 
 ### Draw Zones
 
+Use the included sample zones when you want to run immediately:
+
+```bash
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --zones-path assets/sample_zones.json
+```
+
+Use a new path such as `assets/zones.json` when creating zones for your own camera or video:
+
 ```bash
 python src/main.py --source-type video --source-path "D:/videos/test.mp4" --draw-zones true --zones-path assets/zones.json
 ```
@@ -200,7 +213,7 @@ python src/main.py --source-type video --source-path "D:/videos/test.mp4" --draw
 ### Save Output Video
 
 ```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --zones-path assets/zones.json --save-output true --output-path data/outputs/result.mp4
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --zones-path assets/sample_zones.json --save-output true --output-path data/outputs/result.mp4
 ```
 
 ### Run with YAML Config
@@ -242,6 +255,7 @@ Configuration values are resolved in the following order:
 | `--device` | Inference device |
 | `--imgsz` | YOLO inference image size |
 | `--display` | Show or hide the OpenCV display window |
+| `--tracker-config` | Ultralytics tracker config name or path |
 
 Boolean arguments accept values such as:
 

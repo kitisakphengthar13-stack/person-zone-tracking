@@ -23,11 +23,7 @@ class Zone:
         zone_id = str(data.get("id") or f"zone_{index + 1}")
         name = str(data.get("name") or zone_id)
         points = _validate_points(data.get("points"), zone_id)
-        target_classes = data.get("target_classes")
-        if target_classes:
-            target_classes = [str(item).strip() for item in target_classes if str(item).strip()]
-        else:
-            target_classes = None
+        target_classes = _normalize_target_classes(data.get("target_classes"))
         return cls(id=zone_id, name=name, points=points, target_classes=target_classes)
 
     def to_dict(self) -> dict[str, Any]:
@@ -151,6 +147,20 @@ def _validate_points(points: Any, zone_id: str) -> list[tuple[int, int]]:
         x, y = point
         parsed_points.append((int(x), int(y)))
     return parsed_points
+
+
+def _normalize_target_classes(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        classes = [value.strip()]
+    elif isinstance(value, (list, tuple, set)):
+        classes = [str(item).strip() for item in value]
+    else:
+        classes = [str(value).strip()]
+
+    normalized = [class_name for class_name in classes if class_name]
+    return normalized or None
 
 
 def _point_in_polygon(point: tuple[float, float], polygon: list[tuple[int, int]]) -> bool:

@@ -9,7 +9,7 @@ source_path: data/videos/input.mp4
 zones_path: assets/sample_zones.json
 draw_zones: false
 save_output: false
-output_path: data/videos/true.mp4
+output_path: data/outputs/result.mp4
 display: true
 device: auto
 imgsz: 640
