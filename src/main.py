@@ -1,17 +1,35 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 
 import cv2
 
+from compliance import PersonPPEStatus, evaluate_all_compliance
 from config import AppConfig, load_config, print_resolved_config
 from detector import Detector
 from dwell_time import DwellTimeTracker
+from event_logger import append_violation_events_jsonl
+from events import ViolationEvent
+from ppe_matcher import (
+    PPEMatchConfig,
+    match_ppe_to_persons,
+    split_person_and_ppe_detections,
+)
 from utils import ensure_parent_dir, log_error, log_info
+from violation_engine import ViolationStateTracker
 from video_source import VideoSource
 from visualizer import Visualizer
 from zone_editor import ZoneEditor
-from zone_manager import ZoneManager
+from zone_manager import ZoneManager, ZoneMatch
+
+
+@dataclass(frozen=True)
+class FrameAnalytics:
+    detections_for_display: list[object]
+    zone_matches: list[ZoneMatch]
+    ppe_statuses: list[PersonPPEStatus]
+    violation_events: list[ViolationEvent]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -32,10 +50,24 @@ def main(argv: list[str] | None = None) -> int:
         zone_manager = ZoneManager.from_file(config.zones_path, config.target_classes)
         detector = Detector(config)
         dwell_tracker = DwellTimeTracker()
+        violation_tracker = (
+            ViolationStateTracker()
+            if config.ppe.enabled and config.violations.enabled
+            else None
+        )
         visualizer = Visualizer()
 
         writer = _create_writer(config, source)
-        _run_loop(config, source, zone_manager, detector, dwell_tracker, visualizer, writer)
+        _run_loop(
+            config,
+            source,
+            zone_manager,
+            detector,
+            dwell_tracker,
+            violation_tracker,
+            visualizer,
+            writer,
+        )
         return 0
     except KeyboardInterrupt:
         log_info("Stopped by user.")
@@ -121,6 +153,7 @@ def _run_loop(
     zone_manager: ZoneManager,
     detector: Detector,
     dwell_tracker: DwellTimeTracker,
+    violation_tracker: ViolationStateTracker | None,
     visualizer: Visualizer,
     writer: cv2.VideoWriter | None,
 ) -> None:
@@ -139,15 +172,24 @@ def _run_loop(
             break
 
         detections = detector.detect(packet.frame)
-        zone_matches = zone_manager.match_detections(detections)
-        dwell_tracker.update(zone_matches, packet.timestamp)
+        analytics = _process_frame_analytics(
+            config=config,
+            detections=detections,
+            zone_manager=zone_manager,
+            dwell_tracker=dwell_tracker,
+            violation_tracker=violation_tracker,
+            timestamp=packet.timestamp,
+        )
+        _maybe_log_violation_events(config, analytics.violation_events, packet.timestamp)
 
         output_frame = visualizer.draw(
             frame=packet.frame,
             zones=zone_manager.zones,
-            detections=detections,
-            zone_matches=zone_matches,
+            detections=analytics.detections_for_display,
+            zone_matches=analytics.zone_matches,
             dwell_tracker=dwell_tracker,
+            ppe_statuses=analytics.ppe_statuses,
+            violation_events=analytics.violation_events,
         )
 
         if writer is not None:
@@ -160,6 +202,81 @@ def _run_loop(
                 break
 
     log_info("Processing complete.")
+
+
+def _process_frame_analytics(
+    config: AppConfig,
+    detections: list[object],
+    zone_manager: ZoneManager,
+    dwell_tracker: DwellTimeTracker,
+    violation_tracker: ViolationStateTracker | None,
+    timestamp: float,
+) -> FrameAnalytics:
+    if not config.ppe.enabled:
+        zone_matches = zone_manager.match_detections(detections)
+        dwell_tracker.update(zone_matches, timestamp)
+        return FrameAnalytics(
+            detections_for_display=detections,
+            zone_matches=zone_matches,
+            ppe_statuses=[],
+            violation_events=[],
+        )
+
+    person_detections, ppe_detections = split_person_and_ppe_detections(
+        detections=detections,
+        person_classes=config.ppe.person_classes,
+        ppe_classes=config.ppe.ppe_classes,
+    )
+    ppe_matches = match_ppe_to_persons(
+        persons=person_detections,
+        ppe_items=ppe_detections,
+        config=_ppe_match_config(config),
+    )
+    ppe_statuses = evaluate_all_compliance(
+        person_detections=person_detections,
+        matched_items_by_track=ppe_matches,
+        required_items=config.ppe.required_items,
+    )
+    zone_matches = zone_manager.match_detections(person_detections)
+    violation_events = (
+        violation_tracker.update(zone_matches, ppe_statuses, timestamp)
+        if violation_tracker is not None
+        else []
+    )
+    dwell_tracker.update(zone_matches, timestamp)
+
+    return FrameAnalytics(
+        detections_for_display=detections,
+        zone_matches=zone_matches,
+        ppe_statuses=ppe_statuses,
+        violation_events=violation_events,
+    )
+
+
+def _ppe_match_config(config: AppConfig) -> PPEMatchConfig:
+    return PPEMatchConfig(
+        center_inside_person=config.ppe.matching.center_inside_person,
+        min_person_overlap_ratio=config.ppe.matching.min_person_overlap_ratio,
+        min_region_overlap_ratio=config.ppe.matching.min_region_overlap_ratio,
+        max_center_distance_ratio=config.ppe.matching.max_center_distance_ratio,
+        ppe_regions=dict(config.ppe.matching.ppe_regions),
+    )
+
+
+def _maybe_log_violation_events(
+    config: AppConfig,
+    violation_events: list[ViolationEvent],
+    timestamp: float,
+) -> None:
+    if not config.ppe.enabled:
+        return
+    if not config.violations.enabled or not config.violations.log_events:
+        return
+    append_violation_events_jsonl(
+        events=violation_events,
+        path=config.violations.event_log_path,
+        emitted_at=timestamp,
+    )
 
 
 if __name__ == "__main__":

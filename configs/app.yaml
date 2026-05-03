@@ -14,3 +14,25 @@ display: true
 device: auto
 imgsz: 640
 tracker_config: bytetrack.yaml
+ppe:
+  enabled: false
+  person_classes:
+    - Person
+  ppe_classes:
+    - Hardhat
+    - Safety Vest
+    - Mask
+    - NO-Hardhat
+    - NO-Safety Vest
+    - NO-Mask
+  required_items: []
+  matching:
+    center_inside_person: true
+    min_person_overlap_ratio: 0.02
+    min_region_overlap_ratio: 0.05
+    max_center_distance_ratio: 0.60
+    ppe_regions: {}
+violations:
+  enabled: true
+  log_events: false
+  event_log_path: data/outputs/violations.jsonl

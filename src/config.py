@@ -29,6 +29,31 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "device": "auto",
     "imgsz": 640,
     "tracker_config": "bytetrack.yaml",
+    "ppe": {
+        "enabled": False,
+        "person_classes": ["Person"],
+        "ppe_classes": [
+            "Hardhat",
+            "Safety Vest",
+            "Mask",
+            "NO-Hardhat",
+            "NO-Safety Vest",
+            "NO-Mask",
+        ],
+        "required_items": [],
+        "matching": {
+            "center_inside_person": True,
+            "min_person_overlap_ratio": 0.02,
+            "min_region_overlap_ratio": 0.05,
+            "max_center_distance_ratio": 0.60,
+            "ppe_regions": {},
+        },
+    },
+    "violations": {
+        "enabled": True,
+        "log_events": False,
+        "event_log_path": "data/outputs/violations.jsonl",
+    },
 }
 
 DEFAULT_CONFIG_PATH = "configs/app.yaml"
@@ -43,6 +68,31 @@ CONFIG_ALIASES = {
     "display_window": "display",
     "save_output_video": "save_output",
 }
+
+
+@dataclass(frozen=True)
+class PPEMatchingConfig:
+    center_inside_person: bool
+    min_person_overlap_ratio: float
+    min_region_overlap_ratio: float
+    max_center_distance_ratio: float
+    ppe_regions: dict[str, str]
+
+
+@dataclass(frozen=True)
+class PPEConfig:
+    enabled: bool
+    person_classes: list[str]
+    ppe_classes: list[str]
+    required_items: list[str]
+    matching: PPEMatchingConfig
+
+
+@dataclass(frozen=True)
+class ViolationsConfig:
+    enabled: bool
+    log_events: bool
+    event_log_path: Path
 
 
 @dataclass(frozen=True)
@@ -63,6 +113,8 @@ class AppConfig:
     device: str
     imgsz: int | None
     tracker_config: str | None
+    ppe: PPEConfig
+    violations: ViolationsConfig
 
 
 def load_config(argv: list[str] | None = None) -> AppConfig:
@@ -101,6 +153,7 @@ def validate_config(config: AppConfig) -> None:
         raise ValueError("output_path is required when save_output is enabled.")
     if config.imgsz is not None and config.imgsz <= 0:
         raise ValueError("imgsz must be a positive integer when provided.")
+    _validate_ppe_config(config.ppe)
 
 
 def print_resolved_config(config: AppConfig) -> None:
@@ -113,7 +166,7 @@ def print_resolved_config(config: AppConfig) -> None:
 
 
 def _parse_config_path(argv: list[str] | None) -> str | None:
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--config", default=None)
     args, _ = parser.parse_known_args(argv)
     return args.config
@@ -121,7 +174,8 @@ def _parse_config_path(argv: list[str] | None) -> str | None:
 
 def _parse_cli_overrides(argv: list[str] | None) -> dict[str, Any]:
     parser = argparse.ArgumentParser(
-        description="Multi-zone object tracking and dwell time analytics."
+        description="Multi-zone object tracking and dwell time analytics.",
+        allow_abbrev=False,
     )
     parser.add_argument("--config", default=None, help="Path to YAML config file.")
     parser.add_argument("--model-path", dest="model_path", default=None)
@@ -226,6 +280,8 @@ def _build_app_config(raw: dict[str, Any], config_file: Path | None) -> AppConfi
         device=str(raw.get("device", "auto")).strip().lower(),
         imgsz=None if raw.get("imgsz") in (None, "") else int(raw.get("imgsz")),
         tracker_config=tracker_config,
+        ppe=_build_ppe_config(raw.get("ppe")),
+        violations=_build_violations_config(raw.get("violations")),
     )
 
 
@@ -260,3 +316,88 @@ def _normalize_classes(value: Any) -> list[str]:
             classes.append(cleaned)
             seen.add(key)
     return classes
+
+
+def _build_ppe_config(raw: Any) -> PPEConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("ppe config must be a YAML mapping.")
+
+    default_ppe = DEFAULT_CONFIG["ppe"]
+    merged = dict(default_ppe)
+    merged.update(raw)
+
+    raw_matching = merged.get("matching") or {}
+    if not isinstance(raw_matching, dict):
+        raise ValueError("ppe.matching config must be a YAML mapping.")
+
+    default_matching = default_ppe["matching"]
+    matching = dict(default_matching)
+    matching.update(raw_matching)
+
+    raw_regions = matching.get("ppe_regions") or {}
+    if not isinstance(raw_regions, dict):
+        raise ValueError("ppe.matching.ppe_regions must be a YAML mapping.")
+
+    return PPEConfig(
+        enabled=parse_bool(merged.get("enabled")),
+        person_classes=_normalize_classes(merged.get("person_classes")),
+        ppe_classes=_normalize_classes(merged.get("ppe_classes")),
+        required_items=_normalize_classes(merged.get("required_items")),
+        matching=PPEMatchingConfig(
+            center_inside_person=parse_bool(matching.get("center_inside_person")),
+            min_person_overlap_ratio=float(matching.get("min_person_overlap_ratio")),
+            min_region_overlap_ratio=float(matching.get("min_region_overlap_ratio")),
+            max_center_distance_ratio=float(matching.get("max_center_distance_ratio")),
+            ppe_regions={
+                str(class_name).strip().lower(): str(region).strip().lower()
+                for class_name, region in raw_regions.items()
+                if str(class_name).strip() and str(region).strip()
+            },
+        ),
+    )
+
+
+def _validate_ppe_config(config: PPEConfig) -> None:
+    if not config.person_classes:
+        raise ValueError("ppe.person_classes must contain at least one class.")
+    for value_name, value in (
+        ("ppe.matching.min_person_overlap_ratio", config.matching.min_person_overlap_ratio),
+        ("ppe.matching.min_region_overlap_ratio", config.matching.min_region_overlap_ratio),
+        ("ppe.matching.max_center_distance_ratio", config.matching.max_center_distance_ratio),
+    ):
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"{value_name} must be between 0.0 and 1.0.")
+
+    valid_regions = {"head", "torso", "lower_body", "full_body"}
+    invalid_regions = sorted(
+        region
+        for region in config.matching.ppe_regions.values()
+        if region not in valid_regions
+    )
+    if invalid_regions:
+        raise ValueError(
+            "ppe.matching.ppe_regions contains unsupported region(s): "
+            + ", ".join(invalid_regions)
+        )
+
+
+def _build_violations_config(raw: Any) -> ViolationsConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("violations config must be a YAML mapping.")
+
+    default_violations = DEFAULT_CONFIG["violations"]
+    merged = dict(default_violations)
+    merged.update(raw)
+
+    return ViolationsConfig(
+        enabled=parse_bool(merged.get("enabled")),
+        log_events=parse_bool(merged.get("log_events")),
+        event_log_path=_required_path(
+            merged.get("event_log_path"),
+            "violations.event_log_path",
+        ),
+    )

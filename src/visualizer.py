@@ -6,7 +6,9 @@ from typing import Any
 import cv2
 import numpy as np
 
+from compliance import COMPLIANT, NON_COMPLIANT, UNKNOWN, PersonPPEStatus
 from dwell_time import DwellTimeTracker
+from events import ViolationEvent
 from utils import format_seconds
 from zone_manager import Zone, ZoneMatch
 
@@ -34,11 +36,15 @@ class Visualizer:
         detections: list[Any],
         zone_matches: list[ZoneMatch],
         dwell_tracker: DwellTimeTracker,
+        ppe_statuses: list[PersonPPEStatus] | None = None,
+        violation_events: list[ViolationEvent] | None = None,
     ) -> np.ndarray:
+        del violation_events
         output = frame.copy()
 
         self._draw_zones(output, zones)
         matches_by_detection = self._group_matches_by_detection(zone_matches)
+        ppe_status_by_track = build_ppe_status_by_track(ppe_statuses)
 
         for detection in detections:
             self._draw_detection(
@@ -46,6 +52,7 @@ class Visualizer:
                 detection,
                 matches_by_detection.get(id(detection), []),
                 dwell_tracker,
+                _ppe_status_for_detection(detection, ppe_status_by_track),
             )
 
         self._draw_zone_summaries(output, zones, zone_matches, dwell_tracker)
@@ -116,6 +123,7 @@ class Visualizer:
         detection: Any,
         matches: list[ZoneMatch],
         dwell_tracker: DwellTimeTracker,
+        ppe_status: PersonPPEStatus | None = None,
     ) -> None:
         ui = self._ui(frame)
 
@@ -132,6 +140,10 @@ class Visualizer:
 
         track_text = "?" if detection.track_id is None else str(detection.track_id)
         label = f"{detection.class_name} #{track_text} {detection.confidence:.2f}"
+
+        ppe_label = format_ppe_status_label(ppe_status)
+        if ppe_label:
+            label = f"{label} | {ppe_label}"
 
         dwell_parts: list[str] = []
         if detection.track_id is not None:
@@ -297,3 +309,43 @@ class Visualizer:
 def _color_for_text(text: str) -> tuple[int, int, int]:
     index = sum(ord(char) for char in text) % len(COLOR_PALETTE)
     return COLOR_PALETTE[index]
+
+
+def build_ppe_status_by_track(
+    statuses: list[PersonPPEStatus] | None,
+) -> dict[int, PersonPPEStatus]:
+    if not statuses:
+        return {}
+    return {
+        int(status.track_id): status
+        for status in statuses
+        if status.track_id is not None
+    }
+
+
+def format_ppe_status_label(status: PersonPPEStatus | None) -> str:
+    if status is None:
+        return ""
+    if status.compliance_state == COMPLIANT:
+        return "compliant"
+    if status.compliance_state == NON_COMPLIANT:
+        missing_items = sorted(status.missing_items)
+        if missing_items:
+            return f"missing: {', '.join(missing_items)}"
+        return "missing PPE"
+    if status.compliance_state == UNKNOWN:
+        return "unknown PPE"
+    return str(status.compliance_state)
+
+
+def _ppe_status_for_detection(
+    detection: Any,
+    statuses_by_track: dict[int, PersonPPEStatus],
+) -> PersonPPEStatus | None:
+    track_id = getattr(detection, "track_id", None)
+    if track_id is None:
+        return None
+    try:
+        return statuses_by_track.get(int(track_id))
+    except (TypeError, ValueError):
+        return None

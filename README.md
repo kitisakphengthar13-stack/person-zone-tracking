@@ -1,10 +1,12 @@
-# Person Zone Tracking
+# PPE-Aware Person Zone Tracking
 
-A production-oriented Python computer vision project for tracking selected object classes inside user-defined polygon zones and calculating dwell time per zone, class, and track ID.
+A portfolio-oriented Python computer vision experiment for tracking people inside user-defined polygon zones, evaluating PPE compliance, and emitting debounced safety violation events.
 
-The project supports webcam input, video file input, YOLO detection with persistent Ultralytics tracking, multi-zone polygon membership, dwell time analytics, OpenCV overlays, and optional output video saving.
+The project supports webcam input, video file input, YOLO detection with persistent Ultralytics tracking, multi-zone polygon membership, dwell time analytics, PPE-to-person association, PPE compliance overlays, optional output video saving, and optional JSONL violation event logging.
 
 > This repository does not include model weights, videos, generated outputs, logs, or Git metadata.
+>
+> This is an experimental portfolio project, not a certified safety system. Current validation is automated code-level testing only; no real webcam, video, or YOLO model validation has been performed in this branch.
 
 ---
 
@@ -18,15 +20,17 @@ Youtube Demo: [Watch the demo](https://www.youtube.com/watch?v=JkBRFS-tjHM)
 
 `person-zone-tracking` is designed for zone-based object monitoring using computer vision.
 
-The system detects selected object classes, assigns persistent tracking IDs, checks whether each tracked object is inside user-defined polygon zones, and calculates how long each object stays inside each zone.
+The PPE branch extends the original person-zone tracking pipeline with PPE-aware safety logic. The system detects model classes, assigns persistent tracking IDs, separates people from PPE items, associates PPE detections to tracked people, evaluates required PPE rules, checks whether tracked people are inside polygon zones, and emits debounced violation events when non-compliance persists.
 
-The default example in this repository focuses on `person` tracking, but the system is designed to support multiple target classes if the YOLO model is trained with those classes.
+The original zone tracking behavior remains available when `ppe.enabled` is `false`.
 
 Typical use cases include:
 
 - Person dwell-time monitoring
 - Restricted-area monitoring
 - Safety-zone monitoring
+- PPE compliance experiments
+- Debounced safety violation event logging
 - Multi-zone object activity analysis
 - Camera-based behavior or movement tracking
 - Multi-class zone-based object tracking
@@ -47,12 +51,17 @@ Typical use cases include:
 | YOLO detection | Uses Ultralytics YOLO for object detection |
 | Persistent tracking | Uses YOLO `track(..., persist=True)` to maintain object identities across frames |
 | Multi-zone support | Supports multiple user-defined polygon zones |
+| PPE-aware branch | Optionally separates people and PPE detections when `ppe.enabled` is true |
+| PPE-to-person matching | Associates PPE detections to tracked person bounding boxes using spatial rules |
+| Compliance evaluation | Evaluates required PPE items such as `hardhat`, `safety_vest`, and `mask` |
+| Debounced violation events | Emits active and cleared events only after duration thresholds |
+| JSONL event logging | Optionally writes emitted violation events as one JSON object per line |
 | Flexible polygon shapes | Each zone can contain any number of polygon points |
 | JSON zone storage | Zones can be saved to and loaded from JSON files |
-| Configurable classes | Default example uses `person`, but the system can track multiple classes supported by the selected YOLO model |
+| Configurable classes | Supports model-specific class names through YAML and CLI configuration |
 | Multi-class tracking support | Multiple target classes can be passed through `--classes` or configured in `target_classes` |
 | Dwell-time analytics | Calculates time spent inside each zone per class and track ID |
-| OpenCV visualization | Draws bounding boxes, class names, confidence scores, track IDs, zones, dwell time, and zone summaries |
+| OpenCV visualization | Draws bounding boxes, class names, confidence scores, track IDs, zones, dwell time, zone summaries, and optional PPE compliance labels |
 | Output video saving | Can optionally save the processed video |
 | Flexible configuration | Supports command-line arguments, YAML config, and safe default values |
 | Deployment flexibility | YOLO models can be exported to deployment formats such as ONNX, OpenVINO, TensorRT, CoreML, TFLite, NCNN, and RKNN |
@@ -60,6 +69,8 @@ Typical use cases include:
 ---
 
 ## Processing Pipeline
+
+When `ppe.enabled` is `false`, the original zone tracking pipeline is used:
 
 ```text
 Video or Webcam Input
@@ -78,6 +89,33 @@ Dwell Time Calculation
         |
         v
 Visualization and Optional Output Saving
+```
+
+When `ppe.enabled` is `true`, the PPE-aware pipeline is used:
+
+```text
+Video or Webcam Input
+        |
+        v
+YOLO Detection and Persistent Tracking
+        |
+        v
+Person/PPE Detection Split
+        |
+        v
+PPE-to-Person Matching
+        |
+        v
+Compliance Evaluation
+        |
+        v
+Polygon Zone Matching for Person Tracks
+        |
+        v
+Debounced Violation Events
+        |
+        v
+Visualization and Optional JSONL Event Logging
 ```
 
 Dwell time is tracked independently using the following structure:
@@ -109,6 +147,60 @@ zone_id -> class_name -> track_id
 
 This means the project can track `person` by default and can also track additional classes if they exist in the selected YOLO model.
 
+For PPE mode, zone matching and dwell tracking are performed on tracked person detections only. PPE detections are used as supporting evidence for compliance status.
+
+---
+
+## PPE Safety Tracking
+
+The PPE branch is designed around one specific PPE model class set:
+
+```python
+[
+    "Hardhat",
+    "Mask",
+    "NO-Hardhat",
+    "NO-Mask",
+    "NO-Safety Vest",
+    "Person",
+    "Safety Cone",
+    "Safety Vest",
+    "machinery",
+    "vehicle",
+]
+```
+
+These raw YOLO class names are preserved when reading `Detection.class_name`. The compliance layer maps PPE-related raw class names to normalized internal item names:
+
+| Raw model class | Internal meaning |
+|---|---|
+| `Hardhat` | `hardhat` present |
+| `Safety Vest` | `safety_vest` present |
+| `Mask` | `mask` present |
+| `NO-Hardhat` | missing `hardhat` |
+| `NO-Safety Vest` | missing `safety_vest` |
+| `NO-Mask` | missing `mask` |
+
+Context classes such as `Safety Cone`, `machinery`, and `vehicle` are not required PPE items by default.
+
+PPE compliance states are:
+
+| State | Meaning |
+|---|---|
+| `compliant` | All configured required PPE items are matched to the tracked person |
+| `non_compliant` | At least one required PPE item is missing or explicitly detected as missing |
+| `unknown` | The person cannot be safely evaluated, for example because the track ID is missing |
+
+The visualization overlay appends compact PPE text to tracked person labels:
+
+```text
+Person #3 0.91 | compliant
+Person #4 0.88 | missing: hardhat, safety_vest
+Person #5 0.76 | unknown PPE
+```
+
+Violation events are debounced by `ViolationStateTracker`. A non-compliant person inside a matched zone starts as `pending`; an `active` event is emitted only after the configured duration threshold. A `cleared` event is emitted only after the violation disappears for the configured clear duration.
+
 ---
 
 ## Folder Structure
@@ -132,12 +224,17 @@ person-zone-tracking/
 |-- models/
 |   `-- .gitkeep
 |-- src/
+|   |-- compliance.py
 |   |-- config.py
 |   |-- detector.py
 |   |-- dwell_time.py
+|   |-- event_logger.py
+|   |-- events.py
 |   |-- main.py
+|   |-- ppe_matcher.py
 |   |-- tracker.py
 |   |-- utils.py
+|   |-- violation_engine.py
 |   |-- video_source.py
 |   |-- visualizer.py
 |   |-- zone_editor.py
@@ -177,24 +274,24 @@ Run all commands from the project root directory.
 ### Run with Webcam
 
 ```bash
-python src/main.py --source-type webcam --camera-id 0 --model-path models/best.pt --conf 0.3 --classes person
+python src/main.py --source-type webcam --camera-id 0 --model-path models/best.pt --conf 0.3 --classes Person
 ```
 
 ### Run with Video File
 
 ```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes person
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes Person
 ```
 
 ### Run with Multiple Classes
 
-The default examples use `person`, but the system supports multiple target classes if the selected YOLO model includes them.
+The PPE examples use `Person`, but the system supports multiple target classes if the selected YOLO model includes them.
 
 ```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes person class_a class_b
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes Person Hardhat "Safety Vest" Mask
 ```
 
-Replace `class_a` and `class_b` with class names that exist in your trained YOLO model.
+Use class names that exist in your trained YOLO model. Class names are case-sensitive in the PPE branch examples.
 
 ### Draw Zones
 
@@ -221,6 +318,35 @@ python src/main.py --source-type video --source-path "D:/videos/test.mp4" --mode
 ```bash
 python src/main.py --config configs/app.yaml
 ```
+
+### Run PPE Mode
+
+Enable PPE mode in `configs/app.yaml` and use a model trained with the exact PPE class names listed in this README.
+
+```yaml
+target_classes:
+  - Person
+  - Hardhat
+  - Safety Vest
+  - Mask
+  - NO-Hardhat
+  - NO-Safety Vest
+  - NO-Mask
+
+ppe:
+  enabled: true
+  required_items:
+    - hardhat
+    - safety_vest
+```
+
+Then run:
+
+```bash
+python src/main.py --config configs/app.yaml
+```
+
+The application still requires local model weights, for example `models/best.pt`. This repository does not download weights automatically.
 
 ---
 
@@ -274,7 +400,13 @@ model_path: models/best.pt
 conf: 0.30
 iou: 0.50
 target_classes:
-  - person
+  - Person
+  - Hardhat
+  - Safety Vest
+  - Mask
+  - NO-Hardhat
+  - NO-Safety Vest
+  - NO-Mask
 source_type: webcam
 camera_id: 0
 source_path: data/videos/input.mp4
@@ -286,6 +418,28 @@ display: true
 device: auto
 imgsz: 640
 tracker_config: bytetrack.yaml
+ppe:
+  enabled: false
+  person_classes:
+    - Person
+  ppe_classes:
+    - Hardhat
+    - Safety Vest
+    - Mask
+    - NO-Hardhat
+    - NO-Safety Vest
+    - NO-Mask
+  required_items: []
+  matching:
+    center_inside_person: true
+    min_person_overlap_ratio: 0.02
+    min_region_overlap_ratio: 0.05
+    max_center_distance_ratio: 0.60
+    ppe_regions: {}
+violations:
+  enabled: true
+  log_events: false
+  event_log_path: data/outputs/violations.jsonl
 ```
 
 To track more than one class, add more class names under `target_classes`.
@@ -300,6 +454,45 @@ target_classes:
 Each class name must exist in the selected YOLO model.
 
 Relative paths are resolved from the project root directory.
+
+### PPE Config
+
+PPE mode is disabled by default. Turn it on with:
+
+```yaml
+ppe:
+  enabled: true
+  required_items:
+    - hardhat
+    - safety_vest
+    - mask
+```
+
+`required_items` uses normalized internal PPE names, not raw YOLO class names. Supported normalized names are:
+
+```text
+hardhat
+safety_vest
+mask
+```
+
+Optional JSONL violation logging is controlled separately:
+
+```yaml
+violations:
+  enabled: true
+  log_events: true
+  event_log_path: data/outputs/violations.jsonl
+```
+
+Only debounced emitted events are logged. The logger does not write one row per frame.
+
+Example JSONL rows:
+
+```jsonl
+{"duration_seconds": 2.0, "emitted_at": 12.5, "ended_at": null, "event_type": "active", "missing_items": ["hardhat", "safety_vest"], "started_at": 10.5, "state": "active", "track_id": 4, "violation_type": "ppe_violation", "zone_id": "zone_1", "zone_name": "Zone 1"}
+{"duration_seconds": 5.2, "emitted_at": 15.7, "ended_at": 15.7, "event_type": "cleared", "missing_items": ["hardhat", "safety_vest"], "started_at": 10.5, "state": "cleared", "track_id": 4, "violation_type": "ppe_violation", "zone_id": "zone_1", "zone_name": "Zone 1"}
+```
 
 ---
 
@@ -413,12 +606,30 @@ If the configured zones file is missing, or `--draw-zones true` is passed, the a
 | Multiple classes | Dwell time is calculated independently per class name |
 | Multiple track IDs | Dwell time is calculated independently per tracked object |
 | Detection without tracking ID | Detection is displayed, but dwell time is skipped |
+| `ppe.enabled: false` | Original detection, zone matching, dwell, and visualization behavior is used |
+| `ppe.enabled: true` | Zone matching and dwell tracking use person detections; PPE detections are used for compliance analysis |
+| PPE violation logging disabled | Violation events may be produced in memory, but no JSONL file is written |
+| PPE violation logging enabled | Only emitted debounced violation events are appended to JSONL |
+
+---
+
+## Automated Tests
+
+Run the automated code-level test suite with:
+
+```bash
+pytest tests -p no:cacheprovider --basetemp=tests_tmp_run_8
+```
+
+These tests cover config parsing, zone matching, dwell-time updates, PPE matching, compliance evaluation, debounced violation events, PPE label formatting, runtime branch helpers, and JSONL event serialization.
+
+The tests do not load real YOLO weights and do not validate real webcam or video performance.
 
 ---
 
 ## Multi-Class Tracking Support
 
-This repository uses `person` as the default example class, but the tracking pipeline is not limited to one class.
+The original project used `person` as the default example class. This PPE branch is configured around the model class `Person`, but the tracking pipeline is not limited to one class.
 
 The system can track multiple classes when:
 
@@ -429,16 +640,17 @@ The system can track multiple classes when:
 Example command:
 
 ```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --classes person class_a class_b
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --classes Person Hardhat "Safety Vest" Mask
 ```
 
 Example YAML:
 
 ```yaml
 target_classes:
-  - person
-  - class_a
-  - class_b
+  - Person
+  - Hardhat
+  - Safety Vest
+  - Mask
 ```
 
 Example dwell-time structure:
@@ -559,7 +771,13 @@ Exported models may require different inference code, preprocessing, post-proces
 
 ## Limitations
 
+- This is a portfolio-oriented PPE safety tracking experiment, not a certified safety system.
+- Current validation is automated code-level validation only.
+- No real webcam, video, or model-weight validation has been performed for this PPE branch yet.
+- No detection accuracy claims are made in this repository.
 - Tracking quality depends on the YOLO model, camera angle, frame rate, object occlusion, and tracker configuration.
+- PPE detection quality depends on the selected weights, training data, camera angle, lighting, resolution, occlusion, and environment.
+- PPE-to-person matching uses bounding-box spatial heuristics, so crowded scenes, partial body visibility, and overlapping people can produce incorrect associations.
 - The sample zone file is only a placeholder. Draw zones for your actual camera or video scene.
 - Additional target classes require a YOLO model trained with those classes.
 - Very crowded scenes may require adjusted confidence, IoU, image size, or tracker settings.
@@ -572,9 +790,10 @@ Exported models may require different inference code, preprocessing, post-proces
 ## Future Improvements
 
 - Export dwell analytics to CSV or JSON.
-- Add per-zone entry and exit event logs.
+- Add richer per-zone entry, exit, and violation reports.
 - Add a small dashboard for historical summaries.
-- Add automated tests for config parsing, zone validation, and dwell-time updates.
+- Validate the PPE branch with real recorded video and documented model weights.
+- Add benchmark clips and expected sample outputs for portfolio demos.
 - Add benchmark scripts for exported model formats such as ONNX, OpenVINO, and TensorRT.
 - Support separate tracker configuration files per deployment.
 
@@ -584,8 +803,8 @@ Exported models may require different inference code, preprocessing, post-proces
 
 This project is structured for practical computer vision experimentation and deployment-style development.
 
-The main goal is not only to detect objects, but also to convert detection and tracking results into zone-based time analytics that can be used for monitoring, reporting, or downstream decision logic.
+The main goal is not only to detect objects, but also to convert detection and tracking results into zone-based time analytics and PPE safety-rule signals that can be used for monitoring, reporting, or downstream decision logic.
 
-Although this repository uses `person` as the default example class, the pipeline is designed to support multiple classes when the selected YOLO model and configuration provide them.
+Although the original repository used `person` as the default example class, the PPE branch is configured around the raw class name `Person` and PPE classes such as `Hardhat`, `Safety Vest`, and `Mask`.
 
 For deployment, always test the exported model on the actual target device. Export format alone does not guarantee real-world performance. Camera resolution, FPS, preprocessing, post-processing, tracker configuration, and hardware acceleration all affect the final system speed.
