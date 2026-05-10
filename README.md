@@ -1,6 +1,6 @@
 # Person Zone Tracking
 
-A production-oriented Python computer vision project for tracking selected object classes inside user-defined polygon zones and calculating dwell time per zone, class, and track ID.
+A practical Python computer vision project for tracking selected object classes inside user-defined polygon zones and calculating dwell time per zone, class, and track ID.
 
 The project supports webcam input, video file input, YOLO detection with persistent Ultralytics tracking, multi-zone polygon membership, dwell time analytics, OpenCV overlays, and optional output video saving.
 
@@ -168,6 +168,8 @@ You can also pass a custom model path using `--model-path`.
 
 This project intentionally does not download YOLO weights automatically. If the model file is missing, the application exits with a clear error message.
 
+`models/best.pt` is a local model placeholder, and `data/videos/input.mp4` is a local input placeholder. Model weights and sample videos are intentionally not committed to Git; provide your own trained YOLO model and video file when running the project.
+
 ---
 
 ## Usage
@@ -300,6 +302,18 @@ target_classes:
 Each class name must exist in the selected YOLO model.
 
 Relative paths are resolved from the project root directory.
+
+---
+
+## Automated Tests
+
+Run the automated code-level tests with:
+
+```bash
+pytest tests -p no:cacheprovider
+```
+
+The tests cover config parsing, zone validation and matching, and dwell-time updates. They do not require a real webcam, video file, or YOLO model weights.
 
 ---
 
@@ -574,7 +588,7 @@ Exported models may require different inference code, preprocessing, post-proces
 - Export dwell analytics to CSV or JSON.
 - Add per-zone entry and exit event logs.
 - Add a small dashboard for historical summaries.
-- Add automated tests for config parsing, zone validation, and dwell-time updates.
+- Add broader automated tests for detector result parsing, visualization smoke checks, and runtime orchestration.
 - Add benchmark scripts for exported model formats such as ONNX, OpenVINO, and TensorRT.
 - Support separate tracker configuration files per deployment.
 

@@ -113,7 +113,7 @@ def print_resolved_config(config: AppConfig) -> None:
 
 
 def _parse_config_path(argv: list[str] | None) -> str | None:
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--config", default=None)
     args, _ = parser.parse_known_args(argv)
     return args.config
@@ -121,7 +121,8 @@ def _parse_config_path(argv: list[str] | None) -> str | None:
 
 def _parse_cli_overrides(argv: list[str] | None) -> dict[str, Any]:
     parser = argparse.ArgumentParser(
-        description="Multi-zone object tracking and dwell time analytics."
+        description="Multi-zone object tracking and dwell time analytics.",
+        allow_abbrev=False,
     )
     parser.add_argument("--config", default=None, help="Path to YAML config file.")
     parser.add_argument("--model-path", dest="model_path", default=None)
