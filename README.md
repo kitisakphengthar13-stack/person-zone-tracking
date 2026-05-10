@@ -1,12 +1,14 @@
 # PPE-Aware Person Zone Tracking
 
-A portfolio-oriented Python computer vision experiment for tracking people inside user-defined polygon zones, evaluating PPE compliance, and emitting debounced safety violation events.
+This branch extends the `main` person-zone tracking project with PPE-aware safety tracking logic.
 
-The project supports webcam input, video file input, YOLO detection with persistent Ultralytics tracking, multi-zone polygon membership, dwell time analytics, PPE-to-person association, PPE compliance overlays, optional output video saving, and optional JSONL violation event logging.
+The base project tracks people inside polygon zones and calculates dwell time. This experimental branch adds PPE-to-person association, compliance evaluation, debounced violation events, optional visualization labels, and optional JSONL event logging.
+
+This branch is built on the same core architecture as `main`: YOLO tracking, polygon zone matching, dwell/time state, OpenCV visualization, YAML/CLI configuration, and hardware-free unit tests.
+
+This is a portfolio-oriented experiment, not a certified safety system. Current validation is automated code-level validation only; no real webcam, video, or YOLO model validation has been performed for this branch.
 
 > This repository does not include model weights, videos, generated outputs, logs, or Git metadata.
->
-> This is an experimental portfolio project, not a certified safety system. Current validation is automated code-level testing only; no real webcam, video, or YOLO model validation has been performed in this branch.
 
 ---
 
@@ -634,7 +636,7 @@ If the configured zones file is missing, or `--draw-zones true` is passed, the a
 Run the automated code-level test suite with:
 
 ```bash
-pytest tests -p no:cacheprovider --basetemp=tests_tmp_run_8
+pytest tests -p no:cacheprovider
 ```
 
 These tests cover config parsing, zone matching, dwell-time updates, PPE matching, compliance evaluation, debounced violation events, PPE label formatting, runtime branch helpers, and JSONL event serialization.
