@@ -583,6 +583,25 @@ Exported models may require different inference code, preprocessing, post-proces
 
 ---
 
+## Experimental Branches
+
+The `main` branch contains the stable core person-zone tracking project:
+
+```text
+YOLO detection/tracking -> polygon zone matching -> dwell time -> visualization/output
+```
+
+Additional branches explore feature experiments built on the same core architecture:
+
+| Branch | Purpose | Status |
+|---|---|---|
+| `ppe_tracking` | PPE-aware person-zone safety tracking experiment | Experimental, automated code-level validation only |
+| `sit_down_tracking` | YOLO pose-based sit-down/posture compliance experiment | Experimental, automated code-level validation only |
+
+These branches are intentionally kept separate so `main` stays focused on the base tracking system.
+
+---
+
 ## Future Improvements
 
 - Export dwell analytics to CSV or JSON.
