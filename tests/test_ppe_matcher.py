@@ -103,3 +103,34 @@ def test_match_ppe_respects_custom_region_mapping() -> None:
     matches = match_ppe_to_persons([person], [badge], config)
 
     assert matches == {7: {"badge": [badge]}}
+
+
+def test_match_ppe_uses_raw_ppe_model_class_regions() -> None:
+    person = _detection("Person", (0, 0, 100, 200), track_id=7)
+    hardhat = _detection("Hardhat", (35, 5, 65, 35))
+    no_hardhat = _detection("NO-Hardhat", (36, 10, 66, 40))
+    vest = _detection("Safety Vest", (25, 70, 75, 135))
+    no_vest = _detection("NO-Safety Vest", (26, 75, 76, 140))
+
+    matches = match_ppe_to_persons(
+        [person],
+        [hardhat, no_hardhat, vest, no_vest],
+    )
+
+    assert matches == {
+        7: {
+            "hardhat": [hardhat],
+            "no-hardhat": [no_hardhat],
+            "safety vest": [vest],
+            "no-safety vest": [no_vest],
+        }
+    }
+
+
+def test_raw_safety_vest_outside_torso_region_is_not_matched() -> None:
+    person = _detection("Person", (0, 0, 100, 200), track_id=7)
+    vest_near_head = _detection("Safety Vest", (25, 5, 75, 35))
+
+    matches = match_ppe_to_persons([person], [vest_near_head])
+
+    assert matches == {7: {}}

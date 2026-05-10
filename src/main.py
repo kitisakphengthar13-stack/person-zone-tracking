@@ -50,11 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         zone_manager = ZoneManager.from_file(config.zones_path, config.target_classes)
         detector = Detector(config)
         dwell_tracker = DwellTimeTracker()
-        violation_tracker = (
-            ViolationStateTracker()
-            if config.ppe.enabled and config.violations.enabled
-            else None
-        )
+        violation_tracker = _create_violation_tracker(config)
         visualizer = Visualizer()
 
         writer = _create_writer(config, source)
@@ -260,6 +256,17 @@ def _ppe_match_config(config: AppConfig) -> PPEMatchConfig:
         min_region_overlap_ratio=config.ppe.matching.min_region_overlap_ratio,
         max_center_distance_ratio=config.ppe.matching.max_center_distance_ratio,
         ppe_regions=dict(config.ppe.matching.ppe_regions),
+    )
+
+
+def _create_violation_tracker(config: AppConfig) -> ViolationStateTracker | None:
+    if not config.ppe.enabled or not config.violations.enabled:
+        return None
+    return ViolationStateTracker(
+        min_violation_seconds=config.violations.min_violation_seconds,
+        clear_after_seconds=config.violations.clear_after_seconds,
+        max_missing_track_seconds=config.violations.max_missing_track_seconds,
+        emit_unknown_ppe=config.violations.emit_unknown_ppe,
     )
 
 

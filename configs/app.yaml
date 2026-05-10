@@ -3,6 +3,17 @@ conf: 0.30
 iou: 0.50
 target_classes:
   - person
+# PPE runtime validation preset:
+# When ppe.enabled is true, target_classes must include the raw PPE model
+# classes below so Detector does not filter them before PPE analysis.
+# target_classes:
+#   - Person
+#   - Hardhat
+#   - Safety Vest
+#   - Mask
+#   - NO-Hardhat
+#   - NO-Safety Vest
+#   - NO-Mask
 source_type: webcam
 camera_id: 0
 source_path: data/videos/input.mp4
@@ -31,8 +42,18 @@ ppe:
     min_person_overlap_ratio: 0.02
     min_region_overlap_ratio: 0.05
     max_center_distance_ratio: 0.60
-    ppe_regions: {}
+    ppe_regions:
+      Hardhat: head
+      NO-Hardhat: head
+      Mask: head
+      NO-Mask: head
+      Safety Vest: torso
+      NO-Safety Vest: torso
 violations:
   enabled: true
   log_events: false
   event_log_path: data/outputs/violations.jsonl
+  min_violation_seconds: 2.0
+  clear_after_seconds: 1.0
+  max_missing_track_seconds: 1.5
+  emit_unknown_ppe: true

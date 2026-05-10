@@ -6,7 +6,7 @@ from compliance import NON_COMPLIANT
 from config import PPEMatchingConfig
 from detector import Detection
 from events import PPE_VIOLATION
-from main import _process_frame_analytics
+from main import _create_violation_tracker, _process_frame_analytics
 from violation_engine import ViolationStateTracker
 from zone_manager import ZoneMatch
 
@@ -75,6 +75,42 @@ def _ppe_config(enabled: bool = True, required_items: list[str] | None = None) -
             ),
         )
     )
+
+
+def test_create_violation_tracker_uses_configured_thresholds() -> None:
+    config = SimpleNamespace(
+        ppe=SimpleNamespace(enabled=True),
+        violations=SimpleNamespace(
+            enabled=True,
+            min_violation_seconds=4.5,
+            clear_after_seconds=2.5,
+            max_missing_track_seconds=3.5,
+            emit_unknown_ppe=False,
+        ),
+    )
+
+    tracker = _create_violation_tracker(config)
+
+    assert tracker is not None
+    assert tracker.min_violation_seconds == 4.5
+    assert tracker.clear_after_seconds == 2.5
+    assert tracker.max_missing_track_seconds == 3.5
+    assert tracker.emit_unknown_ppe is False
+
+
+def test_create_violation_tracker_disabled_when_ppe_disabled() -> None:
+    config = SimpleNamespace(
+        ppe=SimpleNamespace(enabled=False),
+        violations=SimpleNamespace(
+            enabled=True,
+            min_violation_seconds=4.5,
+            clear_after_seconds=2.5,
+            max_missing_track_seconds=3.5,
+            emit_unknown_ppe=True,
+        ),
+    )
+
+    assert _create_violation_tracker(config) is None
 
 
 def test_ppe_disabled_uses_original_detections_for_zone_matching() -> None:

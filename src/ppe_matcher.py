@@ -10,9 +10,16 @@ BBox = tuple[float, float, float, float]
 DEFAULT_PPE_REGIONS = {
     "helmet": "head",
     "hardhat": "head",
+    "no-hardhat": "head",
+    "no_hardhat": "head",
     "mask": "head",
+    "no-mask": "head",
+    "no_mask": "head",
     "vest": "torso",
+    "safety vest": "torso",
     "safety_vest": "torso",
+    "no-safety vest": "torso",
+    "no_safety_vest": "torso",
     "boots": "lower_body",
     "gloves": "full_body",
 }
@@ -204,8 +211,18 @@ def _center_distance_score(
 
 
 def _region_for_ppe(class_name: str, config: PPEMatchConfig) -> str:
-    region = config.ppe_regions.get(class_name) or DEFAULT_PPE_REGIONS.get(class_name)
+    normalized_name = _normalize_ppe_region_key(class_name)
+    region = (
+        config.ppe_regions.get(class_name)
+        or config.ppe_regions.get(normalized_name)
+        or DEFAULT_PPE_REGIONS.get(class_name)
+        or DEFAULT_PPE_REGIONS.get(normalized_name)
+    )
     return region or "full_body"
+
+
+def _normalize_ppe_region_key(class_name: str) -> str:
+    return class_name.strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _normalize_class_set(class_names: Iterable[str]) -> set[str]:

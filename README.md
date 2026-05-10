@@ -340,6 +340,8 @@ ppe:
     - safety_vest
 ```
 
+When `ppe.enabled` is `true`, `target_classes` must include `Person` and the raw PPE model classes you want to analyze. The detector filters classes before PPE matching, so leaving `target_classes` as the original `person` default will reject the PPE runtime configuration instead of silently dropping PPE detections.
+
 Then run:
 
 ```bash
@@ -435,11 +437,21 @@ ppe:
     min_person_overlap_ratio: 0.02
     min_region_overlap_ratio: 0.05
     max_center_distance_ratio: 0.60
-    ppe_regions: {}
+    ppe_regions:
+      Hardhat: head
+      NO-Hardhat: head
+      Mask: head
+      NO-Mask: head
+      Safety Vest: torso
+      NO-Safety Vest: torso
 violations:
   enabled: true
   log_events: false
   event_log_path: data/outputs/violations.jsonl
+  min_violation_seconds: 2.0
+  clear_after_seconds: 1.0
+  max_missing_track_seconds: 1.5
+  emit_unknown_ppe: true
 ```
 
 To track more than one class, add more class names under `target_classes`.
@@ -483,6 +495,10 @@ violations:
   enabled: true
   log_events: true
   event_log_path: data/outputs/violations.jsonl
+  min_violation_seconds: 2.0
+  clear_after_seconds: 1.0
+  max_missing_track_seconds: 1.5
+  emit_unknown_ppe: true
 ```
 
 Only debounced emitted events are logged. The logger does not write one row per frame.

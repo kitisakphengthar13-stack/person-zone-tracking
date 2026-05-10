@@ -53,6 +53,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "log_events": False,
         "event_log_path": "data/outputs/violations.jsonl",
+        "min_violation_seconds": 2.0,
+        "clear_after_seconds": 1.0,
+        "max_missing_track_seconds": 1.5,
+        "emit_unknown_ppe": True,
     },
 }
 
@@ -93,6 +97,10 @@ class ViolationsConfig:
     enabled: bool
     log_events: bool
     event_log_path: Path
+    min_violation_seconds: float
+    clear_after_seconds: float
+    max_missing_track_seconds: float
+    emit_unknown_ppe: bool
 
 
 @dataclass(frozen=True)
@@ -154,6 +162,8 @@ def validate_config(config: AppConfig) -> None:
     if config.imgsz is not None and config.imgsz <= 0:
         raise ValueError("imgsz must be a positive integer when provided.")
     _validate_ppe_config(config.ppe)
+    _validate_ppe_target_classes(config)
+    _validate_violations_config(config.violations)
 
 
 def print_resolved_config(config: AppConfig) -> None:
@@ -383,6 +393,36 @@ def _validate_ppe_config(config: PPEConfig) -> None:
         )
 
 
+def _validate_ppe_target_classes(config: AppConfig) -> None:
+    if not config.ppe.enabled:
+        return
+
+    configured_targets = {class_name.lower() for class_name in config.target_classes}
+    required_targets = config.ppe.person_classes + config.ppe.ppe_classes
+    missing_targets = [
+        class_name
+        for class_name in required_targets
+        if class_name.lower() not in configured_targets
+    ]
+    if missing_targets:
+        raise ValueError(
+            "ppe.enabled is true, but target_classes is missing PPE model class(es): "
+            + ", ".join(missing_targets)
+            + ". Add the PPE raw model classes to target_classes so detections are "
+            "not filtered before PPE analysis."
+        )
+
+
+def _validate_violations_config(config: ViolationsConfig) -> None:
+    for value_name, value in (
+        ("violations.min_violation_seconds", config.min_violation_seconds),
+        ("violations.clear_after_seconds", config.clear_after_seconds),
+        ("violations.max_missing_track_seconds", config.max_missing_track_seconds),
+    ):
+        if value < 0.0:
+            raise ValueError(f"{value_name} must be zero or greater.")
+
+
 def _build_violations_config(raw: Any) -> ViolationsConfig:
     if raw is None:
         raw = {}
@@ -400,4 +440,8 @@ def _build_violations_config(raw: Any) -> ViolationsConfig:
             merged.get("event_log_path"),
             "violations.event_log_path",
         ),
+        min_violation_seconds=float(merged.get("min_violation_seconds")),
+        clear_after_seconds=float(merged.get("clear_after_seconds")),
+        max_missing_track_seconds=float(merged.get("max_missing_track_seconds")),
+        emit_unknown_ppe=parse_bool(merged.get("emit_unknown_ppe")),
     )
