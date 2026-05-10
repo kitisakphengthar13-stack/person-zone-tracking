@@ -1,6 +1,12 @@
 # Pose-Based Sit-Down Tracking
 
-A portfolio-oriented computer vision prototype for work-zone posture compliance monitoring. This branch extends the original person-zone tracking project with YOLO pose tracking, keypoint-based posture classification, duration-based sitting violation confirmation, visualization overlays, and optional JSONL posture event logging.
+This branch extends the `main` person-zone tracking project with YOLO pose-based posture monitoring.
+
+The base project tracks people inside polygon zones and calculates dwell time. This experimental branch adds pose keypoint extraction, posture classification, duration-based sitting violation confirmation, optional visualization labels, and optional JSONL event logging.
+
+This branch is built on the same core architecture as `main`: YOLO tracking, polygon zone matching, dwell/time state, OpenCV visualization, YAML/CLI configuration, and hardware-free unit tests.
+
+This is a portfolio-oriented prototype, not a certified safety system and not a medical or ergonomic assessment tool. Current validation is automated code-level validation only; no real webcam, video, or YOLO model validation has been performed for this branch.
 
 The intended base pose model is `yolo26n-pose`, configured by default as:
 
@@ -9,8 +15,6 @@ models/yolo26n-pose.pt
 ```
 
 This repository does not include model weights, videos, generated outputs, logs, or Git metadata. It does not download YOLO weights automatically.
-
-> This is a prototype, not a certified safety system. It is not a medical or ergonomic assessment tool. Current validation is automated code-level validation only; no real webcam, video, or YOLO model validation has been performed, and no real YOLO weights were loaded in tests.
 
 ---
 
@@ -300,7 +304,7 @@ python src/main.py --config configs/app.yaml --save-output true --output-path da
 Run the automated code-level test suite:
 
 ```bash
-pytest tests -p no:cacheprovider --basetemp=tests_tmp_posture_phase7
+pytest tests -p no:cacheprovider
 ```
 
 Current result:
