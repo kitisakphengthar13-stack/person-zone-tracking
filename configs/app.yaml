@@ -14,3 +14,24 @@ display: true
 device: auto
 imgsz: 640
 tracker_config: bytetrack.yaml
+posture:
+  enabled: false
+  model_path: models/yolo26n-pose.pt
+  model_type: yolo_pose
+  person_class_name: person
+  required_state: standing
+  violation_state: sitting
+  min_violation_seconds: 30.0
+  clear_after_seconds: 2.0
+  unknown_grace_seconds: 3.0
+  max_missing_track_seconds: 2.0
+  keypoints:
+    min_confidence: 0.35
+    min_required_points: 6
+  zones:
+    ignore_outside_zones: true
+    posture_required_zone_ids: []
+  events:
+    enabled: true
+    log_events: false
+    event_log_path: data/outputs/posture_events.jsonl

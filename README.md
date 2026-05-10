@@ -1,311 +1,219 @@
-# Person Zone Tracking
+# Pose-Based Sit-Down Tracking
 
-A production-oriented Python computer vision project for tracking selected object classes inside user-defined polygon zones and calculating dwell time per zone, class, and track ID.
+A portfolio-oriented computer vision prototype for work-zone posture compliance monitoring. This branch extends the original person-zone tracking project with YOLO pose tracking, keypoint-based posture classification, duration-based sitting violation confirmation, visualization overlays, and optional JSONL posture event logging.
 
-The project supports webcam input, video file input, YOLO detection with persistent Ultralytics tracking, multi-zone polygon membership, dwell time analytics, OpenCV overlays, and optional output video saving.
+The intended base pose model is `yolo26n-pose`, configured by default as:
 
-> This repository does not include model weights, videos, generated outputs, logs, or Git metadata.
+```text
+models/yolo26n-pose.pt
+```
 
----
+This repository does not include model weights, videos, generated outputs, logs, or Git metadata. It does not download YOLO weights automatically.
 
-# Demo
-
-Youtube Demo: [Watch the demo](https://www.youtube.com/watch?v=JkBRFS-tjHM)
-
----
-
-## Overview
-
-`person-zone-tracking` is designed for zone-based object monitoring using computer vision.
-
-The system detects selected object classes, assigns persistent tracking IDs, checks whether each tracked object is inside user-defined polygon zones, and calculates how long each object stays inside each zone.
-
-The default example in this repository focuses on `person` tracking, but the system is designed to support multiple target classes if the YOLO model is trained with those classes.
-
-Typical use cases include:
-
-- Person dwell-time monitoring
-- Restricted-area monitoring
-- Safety-zone monitoring
-- Multi-zone object activity analysis
-- Camera-based behavior or movement tracking
-- Multi-class zone-based object tracking
+> This is a prototype, not a certified safety system. It is not a medical or ergonomic assessment tool. Current validation is automated code-level validation only; no real webcam, video, or YOLO model validation has been performed, and no real YOLO weights were loaded in tests.
 
 ---
 
-## Zone Tracking Example
+## Project Purpose
 
-![Zone Tracking Example](assets/images/sample_zones_tracking.jpg)
+The goal of this branch is to detect tracked people who appear to be sitting in a configured work zone where standing is expected.
+
+The system uses YOLO pose keypoints as the main approach. It does not rely on simple object-detection classes such as `sitting` or `standing`.
+
+A sitting violation is confirmed only when the same tracked person remains classified as sitting for more than 30 seconds.
+
+Typical prototype use cases:
+
+- Work-zone posture compliance monitoring
+- Duration-based sit-down behavior tracking
+- Zone-aware worker behavior experiments
+- Portfolio demonstration of YOLO pose, tracking, polygon zones, temporal debouncing, and event logging
 
 ---
 
-## Key Features
+## Runtime Pipeline
 
-| Feature | Description |
+When `posture.enabled` is `false`, the original person-zone tracking pipeline remains available:
+
+```text
+frame
+-> YOLO object detection/tracking
+-> polygon zone matching
+-> dwell-time tracking
+-> visualization and optional output video
+```
+
+When `posture.enabled` is `true`, the posture pipeline is used:
+
+```text
+frame
+-> YOLO pose tracking
+-> PosePerson extraction
+-> keypoint quality validation
+-> posture classification: standing / sitting / unknown
+-> polygon zone matching
+-> sitting duration tracking
+-> 30-second violation confirmation
+-> visualization overlay
+-> optional JSONL event logging
+```
+
+Zone matching is reused from the original project. `PosePerson` exposes `bbox`, `class_name`, `confidence`, and `track_id`, so existing polygon zone logic can match pose-tracked people without needing a separate zone system.
+
+---
+
+## Key Modules
+
+| File | Purpose |
 |---|---|
-| Webcam and video input | Supports both live webcam streams and video files |
-| YOLO detection | Uses Ultralytics YOLO for object detection |
-| Persistent tracking | Uses YOLO `track(..., persist=True)` to maintain object identities across frames |
-| Multi-zone support | Supports multiple user-defined polygon zones |
-| Flexible polygon shapes | Each zone can contain any number of polygon points |
-| JSON zone storage | Zones can be saved to and loaded from JSON files |
-| Configurable classes | Default example uses `person`, but the system can track multiple classes supported by the selected YOLO model |
-| Multi-class tracking support | Multiple target classes can be passed through `--classes` or configured in `target_classes` |
-| Dwell-time analytics | Calculates time spent inside each zone per class and track ID |
-| OpenCV visualization | Draws bounding boxes, class names, confidence scores, track IDs, zones, dwell time, and zone summaries |
-| Output video saving | Can optionally save the processed video |
-| Flexible configuration | Supports command-line arguments, YAML config, and safe default values |
-| Deployment flexibility | YOLO models can be exported to deployment formats such as ONNX, OpenVINO, TensorRT, CoreML, TFLite, NCNN, and RKNN |
+| `src/pose_types.py` | Pure dataclasses and enums for `Keypoint`, `PosePerson`, `PostureState`, and `PostureStatus` |
+| `src/pose_detector.py` | YOLO pose adapter and pure conversion from Ultralytics-like pose results to `PosePerson` objects |
+| `src/posture_classifier.py` | Frame-level keypoint quality checks and posture classification into `standing`, `sitting`, or `unknown` |
+| `src/posture_events.py` | Dataclasses/constants for posture violation state and emitted events |
+| `src/posture_violation_engine.py` | Duration/debounce engine that confirms sitting violations after more than 30 seconds |
+| `src/posture_event_logger.py` | Optional JSONL serialization and file append helper for emitted posture events |
+| `src/visualizer.py` | Existing OpenCV overlay with optional posture labels |
+| `src/main.py` | Runtime branching between original detection mode and posture mode behind `posture.enabled` |
+
+Original project modules still used:
+
+| File | Purpose |
+|---|---|
+| `src/config.py` | YAML/CLI config loading and validation |
+| `src/zone_manager.py` | Polygon zone loading and bbox-to-zone matching |
+| `src/dwell_time.py` | Per-zone dwell-time accumulation |
+| `src/video_source.py` | Webcam/video frame source and timestamps |
+| `src/tracker.py` | Thin wrapper around Ultralytics `model.track(..., persist=True)` |
 
 ---
 
-## Processing Pipeline
+## Configuration
 
-```text
-Video or Webcam Input
-        |
-        v
-YOLO Object Detection
-        |
-        v
-Persistent Object Tracking
-        |
-        v
-Polygon Zone Matching
-        |
-        v
-Dwell Time Calculation
-        |
-        v
-Visualization and Optional Output Saving
+Edit `configs/app.yaml` to configure the original tracker and the posture branch.
+
+Posture mode is disabled by default:
+
+```yaml
+posture:
+  enabled: false
+  model_path: models/yolo26n-pose.pt
+  model_type: yolo_pose
+  person_class_name: person
+  required_state: standing
+  violation_state: sitting
+  min_violation_seconds: 30.0
+  clear_after_seconds: 2.0
+  unknown_grace_seconds: 3.0
+  max_missing_track_seconds: 2.0
+  keypoints:
+    min_confidence: 0.35
+    min_required_points: 6
+  zones:
+    ignore_outside_zones: true
+    posture_required_zone_ids: []
+  events:
+    enabled: true
+    log_events: false
+    event_log_path: data/outputs/posture_events.jsonl
 ```
 
-Dwell time is tracked independently using the following structure:
+Important fields:
 
-```text
-zone_id -> class_name -> track_id
+| Field | Meaning |
+|---|---|
+| `posture.enabled` | Enables the pose-based posture pipeline when `true` |
+| `posture.model_path` | Intended YOLO pose model path, default `models/yolo26n-pose.pt` |
+| `posture.min_violation_seconds` | Sitting must persist for more than this duration before an active violation event is emitted |
+| `posture.clear_after_seconds` | Standing/non-violation must persist this long before clearing an active violation |
+| `posture.unknown_grace_seconds` | Short unknown/occluded intervals do not immediately reset sitting state |
+| `posture.max_missing_track_seconds` | Short missing-track gaps do not immediately clear state |
+| `posture.events.enabled` | Enables the posture event subsystem |
+| `posture.events.log_events` | Writes emitted posture events to JSONL when `true` |
+| `posture.events.event_log_path` | JSONL output path for posture events |
+
+To enable posture mode:
+
+```yaml
+posture:
+  enabled: true
+  model_path: models/yolo26n-pose.pt
+  min_violation_seconds: 30.0
 ```
 
-Example:
-
-```text
-zone_1
-`-- person
-    |-- track_id_1 -> 12.4 seconds
-    `-- track_id_2 -> 7.8 seconds
-
-zone_2
-`-- person
-    `-- track_id_5 -> 4.2 seconds
-```
-
-This structure allows the system to separate dwell records by zone, class, and individual tracked object.
-
-For multi-class models, the same structure is used for every configured class:
-
-```text
-zone_id -> class_name -> track_id
-```
-
-This means the project can track `person` by default and can also track additional classes if they exist in the selected YOLO model.
-
----
-
-## Folder Structure
-
-```text
-person-zone-tracking/
-|-- README.md
-|-- requirements.txt
-|-- .gitignore
-|-- assets/
-|   |-- images/
-|   |   `-- sample_zones_tracking.jpg
-|   `-- sample_zones.json
-|-- configs/
-|   `-- app.yaml
-|-- data/
-|   |-- outputs/
-|   |   `-- .gitkeep
-|   `-- videos/
-|       `-- .gitkeep
-|-- models/
-|   `-- .gitkeep
-|-- src/
-|   |-- config.py
-|   |-- detector.py
-|   |-- dwell_time.py
-|   |-- main.py
-|   |-- tracker.py
-|   |-- utils.py
-|   |-- video_source.py
-|   |-- visualizer.py
-|   |-- zone_editor.py
-|   `-- zone_manager.py
-`-- tests/
-    `-- .gitkeep
-```
-
----
-
-## Installation
-
-Create and activate a Python virtual environment, then install the required dependencies.
-
-```bash
-pip install -r requirements.txt
-```
-
-Place your YOLO model weights inside the `models/` directory.
-
-Example:
-
-```text
-models/best.pt
-```
-
-You can also pass a custom model path using `--model-path`.
-
-This project intentionally does not download YOLO weights automatically. If the model file is missing, the application exits with a clear error message.
-
----
-
-## Usage
-
-Run all commands from the project root directory.
-
-### Run with Webcam
-
-```bash
-python src/main.py --source-type webcam --camera-id 0 --model-path models/best.pt --conf 0.3 --classes person
-```
-
-### Run with Video File
-
-```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes person
-```
-
-### Run with Multiple Classes
-
-The default examples use `person`, but the system supports multiple target classes if the selected YOLO model includes them.
-
-```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --conf 0.3 --classes person class_a class_b
-```
-
-Replace `class_a` and `class_b` with class names that exist in your trained YOLO model.
-
-### Draw Zones
-
-Use the included sample zones when you want to run immediately:
-
-```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --zones-path assets/sample_zones.json
-```
-
-Use a new path such as `assets/zones.json` when creating zones for your own camera or video:
-
-```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --draw-zones true --zones-path assets/zones.json
-```
-
-### Save Output Video
-
-```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --zones-path assets/sample_zones.json --save-output true --output-path data/outputs/result.mp4
-```
-
-### Run with YAML Config
+Then run:
 
 ```bash
 python src/main.py --config configs/app.yaml
 ```
 
----
-
-## Configuration Priority
-
-Configuration values are resolved in the following order:
-
-| Priority | Source | Description |
-|---|---|---|
-| 1 | Command-line arguments | Highest priority; overrides all other values |
-| 2 | YAML config | Values from `configs/app.yaml` |
-| 3 | Safe defaults | Hardcoded default values used when no config is provided |
+The model file must exist locally. This repository does not download model weights.
 
 ---
 
-## Supported Command-Line Arguments
+## Posture States
 
-| Argument | Description |
+The classifier returns one frame-level posture state for each `PosePerson`:
+
+| State | Meaning |
 |---|---|
-| `--config` | Path to YAML configuration file |
-| `--model-path` | Path to YOLO model weights |
-| `--conf` | Detection confidence threshold |
-| `--iou` | IoU threshold |
-| `--classes` | Target classes to detect and track |
-| `--source-type` | Input source type: `webcam` or `video` |
-| `--source-path` | Path to input video file |
-| `--camera-id` | Webcam camera index |
-| `--zones-path` | Path to zone JSON file |
-| `--draw-zones` | Open the zone editor |
-| `--save-output` | Save processed output video |
-| `--output-path` | Path for saved output video |
-| `--device` | Inference device |
-| `--imgsz` | YOLO inference image size |
-| `--display` | Show or hide the OpenCV display window |
-| `--tracker-config` | Ultralytics tracker config name or path |
+| `standing` | Keypoints suggest an upright standing posture |
+| `sitting` | Keypoints suggest seated hip/knee geometry |
+| `unknown` | Keypoints are missing, low-confidence, occluded, or geometrically ambiguous |
 
-Boolean arguments accept values such as:
+The implementation intentionally uses `unknown` when evidence is insufficient. Lower-body occlusion, low-confidence hips/knees, upper-body-only detections, or ambiguous geometry should not be forced into sitting.
+
+---
+
+## Visualization Labels
+
+The visualization overlay appends posture text to tracked person labels when posture data is available.
+
+Example labels:
 
 ```text
-true, false, yes, no, 1, 0
+ID 2 | standing
+ID 4 | sitting
+ID 4 | sitting 12.4s
+ID 4 | sitting violation 31.2s
+ID 7 | unknown posture
+```
+
+The first implementation keeps the overlay compact. It does not add a dashboard or UI panel.
+
+---
+
+## JSONL Posture Event Logging
+
+Posture event logging is optional and disabled by default:
+
+```yaml
+posture:
+  events:
+    enabled: true
+    log_events: false
+    event_log_path: data/outputs/posture_events.jsonl
+```
+
+When enabled, the logger writes only emitted posture violation events. It does not write one row per frame.
+
+Example JSONL event row:
+
+```json
+{"duration_seconds":31.2,"emitted_at":41.2,"ended_at":null,"event_type":"sitting_violation_active","posture_state":"sitting","started_at":10.0,"state":"active","track_id":7,"zone_id":"zone_1","zone_name":"Work Zone"}
+```
+
+Typical event types:
+
+```text
+sitting_violation_active
+sitting_violation_cleared
 ```
 
 ---
 
-## YAML Config Example
+## Zone Tracking
 
-Edit `configs/app.yaml` to set default values that you do not want to pass every time.
-
-```yaml
-model_path: models/best.pt
-conf: 0.30
-iou: 0.50
-target_classes:
-  - person
-source_type: webcam
-camera_id: 0
-source_path: data/videos/input.mp4
-zones_path: assets/sample_zones.json
-draw_zones: false
-save_output: false
-output_path: data/outputs/result.mp4
-display: true
-device: auto
-imgsz: 640
-tracker_config: bytetrack.yaml
-```
-
-To track more than one class, add more class names under `target_classes`.
-
-```yaml
-target_classes:
-  - person
-  - class_a
-  - class_b
-```
-
-Each class name must exist in the selected YOLO model.
-
-Relative paths are resolved from the project root directory.
-
----
-
-## Zone JSON Format
-
-Zones are stored in JSON format.
+Zones are stored in JSON format:
 
 ```json
 {
@@ -318,274 +226,131 @@ Zones are stored in JSON format.
         [447, 119],
         [836, 118],
         [843, 439],
-        [437, 439],
-        [443, 121]
+        [437, 439]
       ],
-      "target_classes": [
-        "person"
-      ]
+      "target_classes": ["person"]
     }
   ]
 }
 ```
 
-Each polygon must have at least three points.
+Zone membership uses the existing bbox center and bbox/polygon overlap logic. In posture mode, `PosePerson` bounding boxes are passed into the same zone matcher.
 
-If `target_classes` is omitted or empty for a zone, the global target classes are used.
-
-For multi-class tracking, each zone can define its own target classes:
-
-```json
-{
-  "id": "zone_1",
-  "name": "Zone 1",
-  "points": [
-    [447, 119],
-    [836, 118],
-    [843, 439],
-    [437, 439]
-  ],
-  "target_classes": [
-    "person",
-    "class_a",
-    "class_b"
-  ]
-}
-```
-
-Use class names that are available in your trained YOLO model.
-
----
-
-## Zone Membership Logic
-
-Zone membership uses class-agnostic bounding box matching.
-
-A detection is considered inside a zone when at least one of the following conditions is true:
-
-1. The bounding box center point is inside the polygon.
-2. The bounding box and zone overlap ratio reaches the adaptive threshold for that bounding box size.
-
-Bounding box center point:
-
-```text
-center_x = (x1 + x2) / 2
-center_y = (y1 + y2) / 2
-```
-
-Adaptive overlap thresholds:
-
-| Bounding Box Area | Overlap Threshold |
-|---|---|
-| `< 5,000 px` | `0.05` |
-| `< 25,000 px` | `0.10` |
-| `>= 25,000 px` | `0.20` |
-
----
-
-## Zone Drawing Controls
-
-When the zone editor opens, use the following controls:
-
-| Control | Action |
-|---|---|
-| Left click | Add a point |
-| Right click | Finish current polygon |
-| Enter | Finish current polygon |
-| N | Start a new zone |
-| S | Save zones to JSON |
-| R | Reset all zones |
-| Q or Esc | Exit editor |
-
-If the configured zones file is missing, or `--draw-zones true` is passed, the application opens the zone editor using the first frame from the selected source.
-
----
-
-## Runtime Behavior
-
-| Case | Behavior |
-|---|---|
-| Video file input | Dwell timestamps use `frame_index / fps` |
-| Webcam input | Dwell timestamps use `time.time()` |
-| Track leaves a zone | Dwell accumulation stops |
-| Track re-enters the same zone | Dwell time continues from the previous total |
-| Multiple zones | Dwell time is calculated independently per zone |
-| Multiple classes | Dwell time is calculated independently per class name |
-| Multiple track IDs | Dwell time is calculated independently per tracked object |
-| Detection without tracking ID | Detection is displayed, but dwell time is skipped |
-
----
-
-## Multi-Class Tracking Support
-
-This repository uses `person` as the default example class, but the tracking pipeline is not limited to one class.
-
-The system can track multiple classes when:
-
-1. The YOLO model was trained with those classes.
-2. The class names are passed through `--classes` or added to `target_classes` in the YAML config.
-3. The zone JSON either uses the global target classes or defines zone-specific `target_classes`.
-
-Example command:
-
-```bash
-python src/main.py --source-type video --source-path "D:/videos/test.mp4" --model-path models/best.pt --classes person class_a class_b
-```
-
-Example YAML:
+Sitting outside matched zones is ignored by default through:
 
 ```yaml
-target_classes:
-  - person
-  - class_a
-  - class_b
+posture:
+  zones:
+    ignore_outside_zones: true
 ```
-
-Example dwell-time structure:
-
-```text
-zone_id -> class_name -> track_id
-```
-
-This allows the same system to track one class, such as `person`, or multiple classes depending on the model and configuration.
 
 ---
 
-## Model Export Recommendations
+## Installation
 
-The default `.pt` model is suitable for development, testing, and quick iteration with Ultralytics. For deployment on other devices, export the trained YOLO model to a format that matches the target hardware and runtime.
-
-The export format recommendations in this section are based on the official Ultralytics YOLO export documentation.
-
-Reference: [Ultralytics YOLO Export Documentation](https://docs.ultralytics.com/modes/export/#export-formats)
-
-According to the official Ultralytics documentation, YOLO models can be exported to multiple deployment formats, including ONNX, OpenVINO, TensorRT, CoreML, TensorFlow SavedModel, TensorFlow Lite, Edge TPU, TF.js, PaddlePaddle, MNN, NCNN, RKNN, and other runtime-specific formats.
-
-Ultralytics also recommends ONNX or OpenVINO for CPU acceleration and TensorRT for GPU acceleration, depending on the target hardware.
-
-### Recommended Export Formats by Device
-
-| Target Device or Runtime | Recommended Format | When to Use |
-|---|---|---|
-| Development or testing with Ultralytics | `.pt` | Best for development, debugging, and quick iteration |
-| General cross-platform deployment | ONNX | Good general-purpose export format for running outside the Ultralytics Python workflow |
-| CPU-only machine | ONNX | Good first export choice for general CPU inference |
-| Intel CPU or Intel iGPU | OpenVINO | Recommended when deploying on Intel hardware |
-| NVIDIA GPU | TensorRT `.engine` | Recommended for high-speed GPU inference |
-| NVIDIA Jetson | TensorRT `.engine` | Recommended for edge deployment on Jetson devices |
-| Apple macOS or iOS | CoreML | Recommended for Apple ecosystem deployment |
-| Android or lightweight edge devices | TFLite or NCNN | Recommended for mobile or lightweight edge inference |
-| Google Coral Edge TPU | Edge TPU TFLite | Recommended when using Coral Edge TPU hardware |
-| Rockchip-based boards | RKNN | Recommended for Rockchip NPU deployment |
-
-### Export Examples
-
-Export to ONNX:
+Create and activate a Python virtual environment, then install dependencies:
 
 ```bash
-yolo export model=models/best.pt format=onnx imgsz=640
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
-Export to OpenVINO:
+Place local YOLO weights in `models/`.
+
+Example:
+
+```text
+models/yolo26n-pose.pt
+```
+
+---
+
+## Usage
+
+Run all commands from the project root.
+
+Run with YAML config:
 
 ```bash
-yolo export model=models/best.pt format=openvino imgsz=640
+python src/main.py --config configs/app.yaml
 ```
 
-Export to TensorRT:
+Run with video input:
 
 ```bash
-yolo export model=models/best.pt format=engine imgsz=640 device=0
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --config configs/app.yaml
 ```
 
-Export to TensorRT with FP16:
+Draw zones:
 
 ```bash
-yolo export model=models/best.pt format=engine imgsz=640 half=True device=0
+python src/main.py --source-type video --source-path "D:/videos/test.mp4" --draw-zones true --zones-path assets/zones.json
 ```
 
-Export to TensorRT with INT8 calibration:
+Save output video:
 
 ```bash
-yolo export model=models/best.pt format=engine imgsz=640 int8=True data=data.yaml device=0
+python src/main.py --config configs/app.yaml --save-output true --output-path data/outputs/result.mp4
 ```
 
-Export to CoreML:
+---
+
+## Automated Tests
+
+Run the automated code-level test suite:
 
 ```bash
-yolo export model=models/best.pt format=coreml imgsz=640
+pytest tests -p no:cacheprovider --basetemp=tests_tmp_posture_phase7
 ```
 
-Export to TFLite:
+Current result:
 
-```bash
-yolo export model=models/best.pt format=tflite imgsz=640
+```text
+67 passed
 ```
 
-Export to NCNN:
+The tests cover config parsing, pose dataclasses, pose result conversion with fake Ultralytics-like objects, synthetic-keypoint posture classification, duration-based violation confirmation, visualization label helpers, JSONL serialization, and runtime branch helpers.
 
-```bash
-yolo export model=models/best.pt format=ncnn imgsz=640
-```
-
-Export to RKNN:
-
-```bash
-yolo export model=models/best.pt format=rknn imgsz=640
-```
-
-### Practical Recommendation
-
-For this project, the recommended deployment path is:
-
-| Situation | Recommended Choice |
-|---|---|
-| Testing on PC | Use `.pt` directly |
-| Running on CPU-only machine | Export to ONNX first |
-| Running on Intel CPU | Export to OpenVINO |
-| Running on NVIDIA GPU | Export to TensorRT |
-| Running on NVIDIA Jetson | Export to TensorRT on the Jetson device |
-| Running on mobile or small edge hardware | Export to TFLite or NCNN |
-
-In most cases, start with `.pt` during development. After the pipeline is stable, export the model for the target device and benchmark the real FPS, latency, memory usage, and detection quality.
-
-Do not choose an export format only because it is available. Choose the format based on the actual deployment hardware.
-
-TensorRT engine files are hardware-specific and should usually be built on the same target device or a compatible NVIDIA GPU environment.
-
-Exported models may require different inference code, preprocessing, post-processing, or runtime dependencies depending on the selected format.
+The tests do not load real YOLO weights and do not validate real webcam or video behavior.
 
 ---
 
 ## Limitations
 
-- Tracking quality depends on the YOLO model, camera angle, frame rate, object occlusion, and tracker configuration.
-- The sample zone file is only a placeholder. Draw zones for your actual camera or video scene.
-- Additional target classes require a YOLO model trained with those classes.
-- Very crowded scenes may require adjusted confidence, IoU, image size, or tracker settings.
-- Detections without persistent tracking IDs cannot be used for dwell-time accumulation.
-- Exported models may require different inference code, preprocessing, post-processing, or runtime dependencies depending on the selected format.
-- TensorRT engine files are hardware-specific and should usually be built on the same target device or a compatible NVIDIA GPU environment.
+- Validation is automated code-level validation only.
+- No real webcam, video, or model-weight validation has been performed yet.
+- No real YOLO weights were loaded in tests.
+- No detection accuracy claims are made.
+- This is not a certified safety system.
+- This is not a medical or ergonomic assessment tool.
+- 2D pose-based sitting detection is uncertain under occlusion.
+- Camera angle, lighting, tracker ID switches, low FPS, and missing keypoints can affect behavior.
+- Crouching, bending, squatting, leaning, and sitting can be visually ambiguous.
+- Lower-body occlusion can force `unknown` posture rather than a confident state.
+- A 30-second violation depends on stable tracking IDs; ID switches can interrupt confirmation.
 
 ---
 
-## Future Improvements
+## Future Runtime Validation
 
-- Export dwell analytics to CSV or JSON.
-- Add per-zone entry and exit event logs.
-- Add a small dashboard for historical summaries.
-- Add automated tests for config parsing, zone validation, and dwell-time updates.
-- Add benchmark scripts for exported model formats such as ONNX, OpenVINO, and TensorRT.
-- Support separate tracker configuration files per deployment.
+The next step is runtime validation with:
+
+- actual `yolo26n-pose` weights
+- a recorded sample video or webcam feed
+- observed FPS and hardware details
+- qualitative false positive and false negative review
+- documented camera angle, lighting, zone placement, occlusion cases, and limitations
+
+Any future README claims about accuracy or real-world performance should be based on measured evaluation, not assumptions.
 
 ---
 
 ## Notes
 
-This project is structured for practical computer vision experimentation and deployment-style development.
+This branch is intended to demonstrate a practical architecture for posture-compliance experimentation:
 
-The main goal is not only to detect objects, but also to convert detection and tracking results into zone-based time analytics that can be used for monitoring, reporting, or downstream decision logic.
+```text
+YOLO pose + tracking + polygon zones + duration-based violation confirmation
+```
 
-Although this repository uses `person` as the default example class, the pipeline is designed to support multiple classes when the selected YOLO model and configuration provide them.
-
-For deployment, always test the exported model on the actual target device. Export format alone does not guarantee real-world performance. Camera resolution, FPS, preprocessing, post-processing, tracker configuration, and hardware acceleration all affect the final system speed.
+The original person-zone tracking behavior remains available when `posture.enabled` is `false`.

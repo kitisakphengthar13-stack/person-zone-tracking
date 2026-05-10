@@ -7,6 +7,8 @@ import cv2
 import numpy as np
 
 from dwell_time import DwellTimeTracker
+from pose_types import PostureState, PostureStatus
+from posture_events import ACTIVE, PostureViolationEvent
 from utils import format_seconds
 from zone_manager import Zone, ZoneMatch
 
@@ -34,18 +36,28 @@ class Visualizer:
         detections: list[Any],
         zone_matches: list[ZoneMatch],
         dwell_tracker: DwellTimeTracker,
+        posture_statuses: list[PostureStatus] | None = None,
+        posture_events: list[PostureViolationEvent] | None = None,
     ) -> np.ndarray:
         output = frame.copy()
 
         self._draw_zones(output, zones)
         matches_by_detection = self._group_matches_by_detection(zone_matches)
+        posture_status_by_track = build_posture_status_by_track(posture_statuses)
+        active_posture_event_by_track = build_active_posture_event_by_track(posture_events)
 
         for detection in detections:
+            posture_status = _posture_status_for_detection(
+                detection,
+                posture_status_by_track,
+            )
             self._draw_detection(
                 output,
                 detection,
                 matches_by_detection.get(id(detection), []),
                 dwell_tracker,
+                posture_status,
+                _posture_event_for_status(posture_status, active_posture_event_by_track),
             )
 
         self._draw_zone_summaries(output, zones, zone_matches, dwell_tracker)
@@ -116,6 +128,8 @@ class Visualizer:
         detection: Any,
         matches: list[ZoneMatch],
         dwell_tracker: DwellTimeTracker,
+        posture_status: PostureStatus | None = None,
+        posture_event: PostureViolationEvent | None = None,
     ) -> None:
         ui = self._ui(frame)
 
@@ -132,6 +146,9 @@ class Visualizer:
 
         track_text = "?" if detection.track_id is None else str(detection.track_id)
         label = f"{detection.class_name} #{track_text} {detection.confidence:.2f}"
+        posture_label = format_posture_status_label(posture_status, posture_event)
+        if posture_label:
+            label = f"{label} | {posture_label}"
 
         dwell_parts: list[str] = []
         if detection.track_id is not None:
@@ -297,3 +314,72 @@ class Visualizer:
 def _color_for_text(text: str) -> tuple[int, int, int]:
     index = sum(ord(char) for char in text) % len(COLOR_PALETTE)
     return COLOR_PALETTE[index]
+
+
+def build_posture_status_by_track(
+    statuses: list[PostureStatus] | None,
+) -> dict[int, PostureStatus]:
+    if not statuses:
+        return {}
+    return {
+        int(status.track_id): status
+        for status in statuses
+        if status.track_id is not None
+    }
+
+
+def build_active_posture_event_by_track(
+    events: list[PostureViolationEvent] | None,
+) -> dict[int, PostureViolationEvent]:
+    if not events:
+        return {}
+    return {
+        int(event.track_id): event
+        for event in events
+        if event.state == ACTIVE
+    }
+
+
+def format_posture_status_label(
+    status: PostureStatus | None,
+    event: PostureViolationEvent | None = None,
+) -> str:
+    if status is None:
+        return ""
+    if event is not None and event.state == ACTIVE:
+        return f"sitting violation {format_sitting_duration(event.duration_seconds)}"
+    if status.state == PostureState.STANDING:
+        return "standing"
+    if status.state == PostureState.SITTING:
+        if status.sitting_seconds > 0.0:
+            return f"sitting {format_sitting_duration(status.sitting_seconds)}"
+        return "sitting"
+    if status.state == PostureState.UNKNOWN:
+        return "unknown posture"
+    return str(status.state)
+
+
+def format_sitting_duration(seconds: float | int | None) -> str:
+    return f"{max(0.0, float(seconds or 0.0)):.1f}s"
+
+
+def _posture_status_for_detection(
+    detection: Any,
+    statuses_by_track: dict[int, PostureStatus],
+) -> PostureStatus | None:
+    track_id = getattr(detection, "track_id", None)
+    if track_id is None:
+        return None
+    try:
+        return statuses_by_track.get(int(track_id))
+    except (TypeError, ValueError):
+        return None
+
+
+def _posture_event_for_status(
+    status: PostureStatus | None,
+    events_by_track: dict[int, PostureViolationEvent],
+) -> PostureViolationEvent | None:
+    if status is None or status.track_id is None:
+        return None
+    return events_by_track.get(int(status.track_id))
